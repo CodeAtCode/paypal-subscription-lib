@@ -40,7 +40,7 @@ import sqlite3
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from paypal_api import PayPalAPI
+from paypal_subscription import PayPalAPI
 
 paypal_api = PayPalAPI()
 
@@ -118,7 +118,7 @@ This server can be extended to save additional payment details.
 
 ```python
 from fastapi import FastAPI, Request
-from paypal_api import PayPalAPI
+from paypal_subscription import PayPalAPI
 import sqlite3
 
 app = FastAPI()
