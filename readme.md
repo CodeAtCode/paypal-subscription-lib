@@ -1,4 +1,4 @@
-# PayPalAPI Library
+# PayPal Subscription (Python) Library
 [![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](http://www.gnu.org/licenses/gpl-3.0)   
 
 This Python library allows you to interact with the PayPal REST API to manage subscriptions with variable pricing. It includes functionality for creating, updating, suspend and verifying subscriptions, as well as managing products and plans.
