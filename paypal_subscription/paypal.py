@@ -168,7 +168,7 @@ class PayPalAPI:
         url = f"{self.base_url}/v1/billing/plans"
         return self._make_request(url=url, method="POST", json=data, headers=self.headers)
 
-    def update_subscription_price(self, subscription_id: str, new_price: str, currency: str = "EUR") -> Dict[str, Any]:
+    def update_subscription_price(self, subscription_id: str, new_price: str, currency: str = "EUR", custom_id: str = '') -> Dict[str, Any]:
         """
         Update the subscription price.
 
@@ -176,6 +176,7 @@ class PayPalAPI:
             subscription_id (str): Subscription ID.
             new_price (str): New subscription price.
             currency (str): Currency code (default is "EUR").
+            custom_id (str): Custom data to send to paypal that you will get back
 
         Returns:
             Dict[str, Any]: API response with updated subscription details.
@@ -190,11 +191,12 @@ class PayPalAPI:
                     "sequence": 1,
                     "pricing_scheme": {"fixed_price": {"value": new_price, "currency_code": currency}}
                 }
-            ]
+            ],
+            "custom_id": custom_id
         }
         return self._make_request(url=url, method="POST", json=data, headers=self.headers)
 
-    def create_subscription(self, plan_id: str, subscriber_email: str, return_url: str, cancel_url: str) -> Dict[str, Any]:
+    def create_subscription(self, plan_id: str, subscriber_email: str, return_url: str, cancel_url: str, custom_id: str = '') -> Dict[str, Any]:
         """
         Create a new subscription.
 
@@ -203,6 +205,7 @@ class PayPalAPI:
             subscriber_email (str): Subscriber's email.
             return_url (str): URL to redirect to after the subscriber approves the subscription.
             cancel_url (str): URL to redirect to if the subscriber cancels the subscription.
+            custom_id (str): Custom data to send to paypal that you will get back
 
         Returns:
             Dict[str, Any]: API response with subscription details.
@@ -215,7 +218,8 @@ class PayPalAPI:
             "application_context": {
                 "return_url": return_url,
                 "cancel_url": cancel_url
-            }
+            },
+            "custom_id": custom_id
         }
 
         url = f"{self.base_url}/v1/billing/subscriptions"
