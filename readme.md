@@ -5,6 +5,10 @@ This Python library allows you to interact with the PayPal REST API to manage su
 
 Note: When the subscription is approved the user receive an email from Paypal to inform that a new automatic payment is approved, and of course one about the payment itself.
 
+## Addendum
+
+To simplify and avoid to use also the PayPal SDK this library implements methods like `create_order` and `verify_payment` so can be used also for single payments.
+
 ## Usage Example
 
 This example demonstrates how to create a CLI app that creates or updates a PayPal subscription and a FastAPI server with a webhook to save the PayPal identifier in an SQLite database. This setup allows you to check if a plan exists and in case update it automatically.
@@ -152,7 +156,7 @@ def save_subscription_to_db(subscription_id: str, name: str, description: str, p
 async def return_url(request: Request):
     data = await request.json()
     subscription_id = data.get("subscription_id")
-    subscription_details = paypal_api.verify_paypal_response(token=subscription_id, subscription_id=subscription_id)
+    subscription_details = paypal_api.verify_subscription(subscription_id=subscription_id, payer_id="email")
 
     if subscription_details["status"] == "success":
         save_subscription_to_db(

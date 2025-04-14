@@ -15,8 +15,11 @@ class PayPalAPI:
     def __init__(self):
         self.client_id = os.getenv("PAYPAL_CLIENT_ID")
         self.client_secret = os.getenv("PAYPAL_CLIENT_SECRET")
-        self.base_url = "https://api.sandbox.paypal.com" if os.getenv("PAYPAL_SANDBOX", "True") == True else "https://api.paypal.com"
-        self.access_token = self._get_access_token()
+        self.base_url = "https://api.sandbox.paypal.com" if os.getenv("PAYPAL_SANDBOX", "True") == "True" else "https://api.paypal.com"
+        if self.client_id != "" and self.client_secret != "":
+            self.access_token = self._get_access_token()
+        else:
+            raise ValueError("Missing Paypal Secrets")
         self.headers = {"Authorization": f"Bearer {self.access_token}", "Content-Type": "application/json"}
         self.plan_id = ""
 
@@ -65,42 +68,39 @@ class PayPalAPI:
         response.raise_for_status()
         return False
 
-    def verify_paypal_response(self, token: str, subscription_id: str) -> Dict[str, Any]:
+    def verify_subscription(self, subscription_id: str, payer_id: str) -> Dict[str, Any]:
         """
         Verify PayPal response by checking the subscription details.
 
         Args:
-            token (str): PayPal transaction token.
-            subscription_id (str): PayPal Payer ID.
+            subscription_id (str): PayPal Subscription ID.
+            payer_id (str): PayPal Payer ID.
 
         Returns:
             Dict[str, Any]: Verification result.
         """
-        if not token or not subscription_id:
-            return {"status": "error", "message": "Token or subscription_id missing"}
+        if not subscription_id or not payer_id:
+            return {"status": "error", "message": "Subscription ID or Payer ID missing"}
 
         try:
-            subscription_details = self.subscription_exists(token)
+            subscription_details = self.subscription_exists(subscription_id)
             if subscription_details == False:
                 return {"status": "error", "message": "Subscription check failed"}
 
-            if subscription_details.get("id") != token:
-                return {"status": "error", "message": "Token does not match subscription"}
-
             subscriber_info = subscription_details.get("subscriber", {})
-            stored_payer_id = subscriber_info.get("subscription_id")
+            stored_payer_id = subscriber_info.get("payer_id")
 
-            if stored_payer_id and stored_payer_id != subscription_id:
-                return {"status": "error", "message": "subscription_id does not match"}
+            if stored_payer_id and stored_payer_id != payer_id:
+                return {"status": "error", "message": "Payer ID does not match"}
 
             status = subscription_details.get("status")
             if os.getenv("DEBUG", False):
                 if status == "ACTIVE":
-                    print(f"Subscription {token} is active.")
+                    print(f"Subscription {subscription_id} is active.")
                 elif status == "CANCELLED":
-                    print(f"Subscription {token} is cancelled.")
+                    print(f"Subscription {subscription_id} is cancelled.")
                 else:
-                    print(f"Subscription {token} status: {status}.")
+                    print(f"Subscription {subscription_id} status: {status}.")
 
             return {
                 "status": "success",
@@ -109,6 +109,35 @@ class PayPalAPI:
             }
         except requests.exceptions.RequestException as e:
             return {"status": "error", "message": f"PayPal API error: {e}"}
+
+    def verify_payment(self, order_id: str) -> Dict[str, Any]:
+        """
+        Verify the payment by checking the order details.
+
+        Args:
+            order_id (str): PayPal Order ID.
+
+        Returns:
+            Dict[str, Any]: Verification result.
+        """
+        url = f"{self.base_url}/v2/checkout/orders/{order_id}"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        order_details = response.json()
+
+        if order_details['status'] == 'COMPLETED':
+            return {
+                "status": "success",
+                "order_id": order_id,
+                "payer_email": order_details['payer']['email_address'],
+                "amount": order_details['purchase_units'][0]['amount']['value'],
+                "currency": order_details['purchase_units'][0]['amount']['currency_code']
+            }
+        else:
+            return {
+                "status": "error",
+                "order_details": order_details
+            }
 
     def create_product(self, name: str, description: str, type_: str = "SERVICE", category: str = "SOFTWARE") -> Dict[str, Any]:
         """
@@ -132,7 +161,7 @@ class PayPalAPI:
         url = f"{self.base_url}/v1/catalogs/products"
         return self._make_request(url=url, method="POST", json=product_data, headers=self.headers)
 
-    def create_plan(self, product_id: str, name: str, description: str, price: str, currency: str = "EUR") -> Dict[str, Any]:
+    def create_plan(self, product_id: str, name: str, description: str, price: str, currency: str = "EUR", cycles: int = 1) -> Dict[str, Any]:
         """
         Create a subscription plan.
 
@@ -142,6 +171,7 @@ class PayPalAPI:
             description (str): Plan description.
             price (str): Plan price.
             currency (str): Currency code (default is "EUR").
+            cycles (int): Number of payment cycles (default is 1 for one-time subscription, 0 infinite).
 
         Returns:
             Dict[str, Any]: API response with plan details.
@@ -155,7 +185,7 @@ class PayPalAPI:
                     "frequency": {"interval_unit": "WEEK", "interval_count": 1},
                     "tenure_type": "REGULAR",
                     "sequence": 1,
-                    "total_cycles": 0,
+                    "total_cycles": cycles,
                     "pricing_scheme": {"fixed_price": {"value": price, "currency_code": currency}}
                 }
             ],
@@ -167,6 +197,65 @@ class PayPalAPI:
         }
         url = f"{self.base_url}/v1/billing/plans"
         return self._make_request(url=url, method="POST", json=data, headers=self.headers)
+
+    def create_order(self, amount: str, currency: str = "EUR", return_url: str, cancel_url: str) -> Dict[str, Any]:
+        """
+        Create a new order for a one-time payment.
+
+        Args:
+            amount (str): The amount to be paid.
+            currency (str): The currency code (default is "EUR").
+            return_url (str): The URL to redirect to after the payment is approved.
+            cancel_url (str): The URL to redirect to if the payment is cancelled.
+
+        Returns:
+            Dict[str, Any]: API response with order details.
+        """
+        data = {
+            "intent": "CAPTURE",
+            "purchase_units": [
+                {
+                    "amount": {
+                        "currency_code": currency,
+                        "value": amount,
+                        "breakdown": {
+                            "item_total": {
+                                "currency_code": currency,
+                                "value": amount
+                            }
+                        }
+                    }
+                }
+            ],
+            "application_context": {
+                "return_url": return_url,
+                "cancel_url": cancel_url
+            }
+        }
+
+        url = f"{self.base_url}/v2/checkout/orders"
+        return self._make_request(url=url, method="POST", json=data, headers=self.headers)
+
+    def reactivate_subscription(self, subscription_id: str) -> Dict[str, Any]:
+            """
+            Reactivate a suspended or cancelled subscription.
+
+            Args:
+                subscription_id (str): The ID of the subscription to reactivate.
+
+            Returns:
+                Dict[str, Any]: API response with reactivation details.
+            """
+            url = f"{self.base_url}/v1/billing/subscriptions/{subscription_id}/activate"
+            response = requests.post(url, headers=self.headers)
+
+            if response.status_code == 204:
+                return {"status": "success", "message": "Subscription reactivated successfully"}
+            elif response.status_code == 404:
+                return {"status": "error", "message": "Subscription not found"}
+            else:
+                response.raise_for_status()
+                return {"status": "error", "message": "Failed to reactivate subscription"}
 
     def update_subscription_price(self, subscription_id: str, new_price: str, currency: str = "EUR", custom_id: str = '') -> Dict[str, Any]:
         """
@@ -181,6 +270,12 @@ class PayPalAPI:
         Returns:
             Dict[str, Any]: API response with updated subscription details.
         """
+        subscription_details = self.subscription_exists(subscription_id)
+        if subscription_details and subscription_details.get("status") in ["SUSPENDED", "CANCELLED"]:
+            reactivation_response = self.reactivate_subscription(subscription_id)
+            if reactivation_response["status"] == "error":
+                return reactivation_response
+
         url = f"{self.base_url}/v1/billing/subscriptions/{subscription_id}/revise"
         data = {
             "plan_id": self.plan_id,
