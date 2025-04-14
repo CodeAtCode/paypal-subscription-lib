@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='paypal-subscription',
-    version='0.1.0',
+    version='0.1.1',
     packages=find_packages(),
     author='Codeat',
     author_email='mte90net@gmail.com',
