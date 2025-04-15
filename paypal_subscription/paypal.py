@@ -198,7 +198,7 @@ class PayPalAPI:
         url = f"{self.base_url}/v1/billing/plans"
         return self._make_request(url=url, method="POST", json=data, headers=self.headers)
 
-    def create_order(self, amount: str, currency: str = "EUR", return_url: str, cancel_url: str) -> Dict[str, Any]:
+    def create_order(self, amount: str, currency: str = "EUR", return_url: str = '', cancel_url: str = '') -> Dict[str, Any]:
         """
         Create a new order for a one-time payment.
 
@@ -291,7 +291,7 @@ class PayPalAPI:
         }
         return self._make_request(url=url, method="POST", json=data, headers=self.headers)
 
-    def create_subscription(self, plan_id: str, subscriber_email: str, return_url: str, cancel_url: str, custom_id: str = '') -> Dict[str, Any]:
+    def create_subscription(self, plan_id: str, subscriber_email: str, return_url: str = '', cancel_url: str = '', custom_id: str = '') -> Dict[str, Any]:
         """
         Create a new subscription.
 
