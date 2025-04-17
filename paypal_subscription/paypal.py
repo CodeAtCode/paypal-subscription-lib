@@ -15,17 +15,19 @@ class PayPalAPI:
     def __init__(self):
         self.client_id = os.getenv("PAYPAL_CLIENT_ID")
         self.client_secret = os.getenv("PAYPAL_CLIENT_SECRET")
-        self.base_url = "https://api.sandbox.paypal.com" if os.getenv("PAYPAL_SANDBOX", "True") == "True" else "https://api.paypal.com"
+        self.base_url = "https://api-m.sandbox.paypal.com" if os.getenv("PAYPAL_SANDBOX", "True") == "True" else "https://api.paypal.com"
         if self.client_id != "" and self.client_secret != "":
             self.access_token = self._get_access_token()
         else:
             raise ValueError("Missing Paypal Secrets")
-        self.headers = {"Authorization": f"Bearer {self.access_token}", "Content-Type": "application/json"}
+        self.headers = {"Authorization": f"Bearer {self.access_token}", "Content-Type": "application/json", "Accept": "application/json"}
         self.plan_id = ""
 
     def _make_request(self, url: str, method: str, **kwargs) -> Any:
         response = requests.request(method, url, **kwargs)
-        response.raise_for_status()
+        if not response.ok:
+            print(f"PayPal API Error: {response.status_code} - {response.text}")
+            response.raise_for_status()
         return response.json()
 
     def _get_access_token(self) -> str:
@@ -139,6 +141,26 @@ class PayPalAPI:
                 "order_details": order_details
             }
 
+    def get_product_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Search for a product by name.
+
+        Args:
+            name (str): Name of the product.
+
+        Returns:
+            Optional[Dict[str, Any]]: Product details if found, else None.
+        """
+        url = f"{self.base_url}/v1/catalogs/products?page_size=20"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        products = response.json().get("products", [])
+
+        for product in products:
+            if product.get("name") == name:
+                return product
+        return None
+
     def create_product(self, name: str, description: str, type_: str = "SERVICE", category: str = "SOFTWARE") -> Dict[str, Any]:
         """
         Create a product for subscription.
@@ -161,21 +183,27 @@ class PayPalAPI:
         url = f"{self.base_url}/v1/catalogs/products"
         return self._make_request(url=url, method="POST", json=product_data, headers=self.headers)
 
-    def create_plan(self, product_id: str, name: str, description: str, price: str, currency: str = "EUR", cycles: int = 1) -> Dict[str, Any]:
+    def create_plan(self, name: str, description: str, price: str, currency: str = "EUR", cycles: int = 1) -> Dict[str, Any]:
         """
-        Create a subscription plan.
+        Create a subscription plan, and create the product if it doesn't exist.
 
         Args:
-            product_id (str): Product ID.
-            name (str): Plan name.
-            description (str): Plan description.
+            name (str): Plan and product name.
+            description (str): Plan and product description.
             price (str): Plan price.
             currency (str): Currency code (default is "EUR").
-            cycles (int): Number of payment cycles (default is 1 for one-time subscription, 0 infinite).
+            cycles (int): Number of billing cycles (default is 1).
 
         Returns:
             Dict[str, Any]: API response with plan details.
         """
+        product = self.get_product_by_name(name)
+        if product:
+            product_id = product["id"]
+        else:
+            product = self.create_product(name=name, description=description)
+            product_id = product["id"]
+
         data = {
             "product_id": product_id,
             "name": name,
@@ -186,15 +214,25 @@ class PayPalAPI:
                     "tenure_type": "REGULAR",
                     "sequence": 1,
                     "total_cycles": cycles,
-                    "pricing_scheme": {"fixed_price": {"value": price, "currency_code": currency}}
+                    "pricing_scheme": {
+                        "fixed_price": {
+                            "value": price,
+                            "currency_code": currency
+                        }
+                    }
                 }
             ],
             "payment_preferences": {
                 "auto_bill_outstanding": True,
+                "setup_fee": {
+                    "value": "0",
+                    "currency_code": currency
+                },
                 "setup_fee_failure_action": "CONTINUE",
                 "payment_failure_threshold": 3
             }
         }
+
         url = f"{self.base_url}/v1/billing/plans"
         return self._make_request(url=url, method="POST", json=data, headers=self.headers)
 
@@ -372,7 +410,6 @@ class PayPalAPI:
         else:
             if os.getenv("DEBUG", False):
                 print(f"Subscription {identifier} not found. Creating a new subscription.")
-            product = self.create_product(name=name, description=description)
-            plan = self.create_plan(product_id=product["id"], name=name, description=description, price=price, currency=currency)
+            plan = self.create_plan(name=name, description=description, price=price, currency=currency)
             new_subscription = self.create_subscription(plan_id=plan["id"], subscriber_email=subscriber_email, return_url=return_url, cancel_url=cancel_url)
             return new_subscription
